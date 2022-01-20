@@ -261,11 +261,8 @@ def clip_for_inference(model,clip_list,jpg_shape,img_scale,step,score_thres=0.5,
             temp[2]=max(temp[2],i)
             temp[3]=max(temp[3],j)
             dict_for_box[id]=temp
-    predict_png,final_box_list=label_vis(predict_png,id_list,dict_for_box)
-    predict_png = predict_png[:image_h,:image_w]    # 去除右下边界
-    mask_category=mask_category[:image_h,:image_w]*15
-    # cv.imwrite("d:\\compound_img.jpg",predict_png)
-    # cv.imwrite("d:\\compound_mask.jpg",mask_category)
+    final_box_list=label_vis(predict_png,id_list,dict_for_box)
+
     
     return final_box_list # predict_png,
 
@@ -304,16 +301,6 @@ def analyse_result(result,score_thr=0.5):
 
     return bboxes,labels,scores
 
-def paint_chinese_opencv(im,chinese,position,fontsize,color):#opencv输出中文
-    img_PIL = Image.fromarray(cv.cvtColor(im,cv.COLOR_BGR2RGB))# 图像从OpenCV格式转换成PIL格式
-    font = ImageFont.truetype('simhei.ttf',fontsize,encoding="utf-8")
-    #color = (255,0,0) # 字体颜色
-    #position = (100,100)# 文字输出位置
-    draw = ImageDraw.Draw(img_PIL)
-    draw.text(position,chinese,font=font,fill=color)# PIL图片上打印汉字 # 参数1：打印坐标，参数2：文本，参数3：字体颜色，参数4：字体
-    img = cv.cvtColor(np.asarray(img_PIL),cv.COLOR_RGB2BGR)# PIL图片转cv2 图片
-    return img
-
 def label_vis(img,id_list,dict_box):
     bbox_color = (0,0,255)
     text_color = (255,0,0)
@@ -332,9 +319,8 @@ def label_vis(img,id_list,dict_box):
         cv.rectangle(img, (x1,y1), (x2,y2), bbox_color, thickness=2)
         box_list.append([x1,y1,x2-x1,y2-y1,label,score])
         # cv.putText(img, MYCLASSES[label] + ': ' + str(score), (x1,y1), font, 0.6,text_color, 1)
-        img = paint_chinese_opencv(img,MYCLASSES[label],(x1,y1),12,bbox_color)
-
-    return img,box_list
+        
+    return box_list
         
 
 if __name__ == "__main__":
@@ -357,8 +343,3 @@ if __name__ == "__main__":
     clip_for_inference(model,clip_list,img_size,window_size,center_size)
     time_end=time.time()
     print('totally cost: {}'.format(time_end-time_start))
-    # TODO:评估标准
-    # FIXME:最佳window_size,center_size(400,300)
-    # python dilatedInference.py
-    # TODO:是否需要merge | 是否需要膨胀 | 
-    # FIXME:是否需要减去width<10的box
