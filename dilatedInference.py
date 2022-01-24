@@ -1,5 +1,7 @@
 import time
 import os
+import random
+import glob
 from PIL import Image,ImageFont,ImageDraw
 from tqdm import tqdm
 from collections import Counter
@@ -12,6 +14,7 @@ from mmdet.apis import init_detector, inference_detector
 from mmdet.core.visualization import imshow_det_bboxes
 import mmcv
 
+Image.MAX_IMAGE_PIXELS = 120000000
 MYCLASSES = ('坐便器','小便器','蹲便器','台式洗脸盆','台式洗脸盆-双盆','台式洗脸盆-单盆',
         '长条台式洗脸盆','立式洗脸盆','洗脸盆','洗涤槽','洗涤槽-双槽','拖把池',
         '水龙头','洗衣机', '淋浴房', '淋浴房-转角型', '浴缸','淋浴器')
@@ -54,6 +57,26 @@ def get_clips(image,img_scale,step):
                 cnt+=1
     return clip_list
 
+def randomcolor_id_mask(mask_id,h,w,maxid,step):
+    color_mask= np. zeros((h,w,3),np.uint8)
+    color_map={}
+    for i in range(maxid+1):
+        c1=random.randint(5,255)
+        c2=random.randint(5,255)
+        c3=random.randint(5,255)
+        color_map[i]=[c1,c2,c3]
+    color_map[0]=[0,0,0]
+    for y in range(h):
+        for x in range(w):
+            color_mask[y,x,0]=color_map[mask_id[y,x]][0]
+            color_mask[y,x,1]=color_map[mask_id[y,x]][1]
+            color_mask[y,x,2]=color_map[mask_id[y,x]][2]
+    cv.imwrite("d:\\compound_id.jpg",color_mask)
+    for y in range(h//step):
+        for x in range(w//step):
+            temp_mask=color_mask[y*step:y*step+step,x*step:x*step+step]
+            cv.imwrite("d:\\mapdebug\\{}_{}.jpg".format(y,x),temp_mask)
+    
 def create_zeros_png(image_w,image_h,img_scale,step):
     '''Description:
         0. 先创造一个空白图像，将滑窗预测结果逐步填充至空白图像中；
@@ -109,6 +132,7 @@ def merge_clip_top_and_left(thisclip_ids,mask_category,mask_id,step,thres):
     衔接当前块与上方块&左方块
     """
     row_id,col_id=thisclip_ids
+    # print("merge row:{} col:{}".format(row_id,col_id))
     this_x = col_id*step
     this_y = row_id*step
     temp=np.zeros((1,step),np.uint8)
@@ -121,6 +145,7 @@ def merge_clip_top_and_left(thisclip_ids,mask_category,mask_id,step,thres):
             if(mask_category[this_y,this_x+i]==mask_category[top_y,top_x+i] and mask_category[this_y,this_x+i]!=0): # 边缘交集：相交=1
                 temp[0,i]=1
                 inter_cnt+=1
+        # print("{},{} : {}".format(row_id,col_id,inter_cnt))
         i=0
         j=0
         pair_list=[]
@@ -134,7 +159,8 @@ def merge_clip_top_and_left(thisclip_ids,mask_category,mask_id,step,thres):
                 pair_list.append((i,j-1))
             i=j
             i+=1
-        
+        # if len(pair_list)>0:
+        #     print("[1]top pair number: {}".format(len(pair_list)))
         for i in range(len(pair_list)):
             first,last=pair_list[i]
             length=last-first+1
@@ -148,6 +174,7 @@ def merge_clip_top_and_left(thisclip_ids,mask_category,mask_id,step,thres):
             if length/(last-first+1)>=thres:
                
                 top_id=mask_id[top_y,top_x+(last+first)//2]
+                # print("top yes!top_box_id:{}".format(top_id))
                 first,last=pair_list[i]
                 this_id=mask_id[this_y,this_x+(last+first)//2]
                 flag=False
@@ -156,6 +183,9 @@ def merge_clip_top_and_left(thisclip_ids,mask_category,mask_id,step,thres):
                         if(mask_id[y,x]==this_id and mask_category[y,x]==cat):
                             flag=True
                             mask_id[y,x]=top_id
+                # print(flag)
+                # print(row_id,col_id)
+              
 
     # left
     temp=np.zeros((1,step),np.uint8)
@@ -166,6 +196,8 @@ def merge_clip_top_and_left(thisclip_ids,mask_category,mask_id,step,thres):
         for i in range(step):
             if(mask_category[this_y+i,this_x]==mask_category[top_y+i,top_x] and mask_category[this_y+i,this_x]!=0): # 相交
                 temp[0,i]=1
+                inter_cnt+=1
+        # print("{},{} : {}".format(row_id,col_id,inter_cnt))
         i=0
         j=0
         pair_list=[]    # 0-1串中连续1的起止
@@ -179,6 +211,8 @@ def merge_clip_top_and_left(thisclip_ids,mask_category,mask_id,step,thres):
                 pair_list.append((i,j-1))
             i=j
             i+=1
+        # if len(pair_list)>0:
+        #     print("[2]left pair number: {}".format(len(pair_list)))
         for i in range(len(pair_list)):
             first,last=pair_list[i]
             length=last-first+1
@@ -190,6 +224,7 @@ def merge_clip_top_and_left(thisclip_ids,mask_category,mask_id,step,thres):
             first+=1
             last-=1
             if length/(last-first+1)>=thres:
+                
                 flag=False
                 top_id=mask_id[top_y+(last+first)//2,top_x]
                 # print("left yes!left_box_id:{}".format(top_id))
@@ -200,10 +235,15 @@ def merge_clip_top_and_left(thisclip_ids,mask_category,mask_id,step,thres):
                         if(mask_id[y,x]==this_id and mask_category[y,x]==cat):
                             flag=True
                             mask_id[y,x]=top_id
-                
+                # print(flag)
+                # print(row_id,col_id)
+                # print("---------------")
+            # else:
+            #     print(length/(last-first+1))
+    # print("merge done---")
     return mask_category,mask_id
     
-def clip_for_inference(model,clip_list,jpg_shape,img_scale,step,score_thres=0.5,device=None):
+def clip_for_inference(model,clip_list,jpg_shape,img_scale,step,img_name,score_thres=0.5,device=None):
     """
     将clip_list中的clip逐个推理，并合并结果
     """
@@ -261,10 +301,33 @@ def clip_for_inference(model,clip_list,jpg_shape,img_scale,step,score_thres=0.5,
             temp[2]=max(temp[2],i)
             temp[3]=max(temp[3],j)
             dict_for_box[id]=temp
-    final_box_list=label_vis(predict_png,id_list,dict_for_box)
+    predict_png,final_box_list=label_vis(predict_png,id_list,dict_for_box)
+    predict_png = predict_png[:image_h,:image_w]    # 去除右下边界
+    mask_category=mask_category[:image_h,:image_w]*15
+    max_id=max(id_list)
+    # randomcolor_id_mask(mask_id,h,w,max_id,step)
+    cv.imwrite("d:\\img_result\\test\\compound_img_{}.jpg".format(img_name),predict_png)
+    return final_box_list # predict_png,
+    # cv.imwrite("d:\\result\\test\\compound_img_{}.jpg".format(img_name),predict_png)
+    # cv.imwrite("d:\\compound_mask.jpg",mask_category)
 
     
-    return final_box_list # predict_png,
+def postprocess(data,img_name):
+        out_file="d:\\img_label\\test\\{}.json".format(img_name)
+        output = []
+        # NOTICE: box_list.append([x1,y1,x2-x1,y2-y1,label,score])
+        for box_index,box_data in enumerate(data):
+            x1,y1,width,height,category_id,score,box_id=box_data
+            bbox_coords=[x1,y1,width,height]
+            output.append({
+                'box_id':box_id,
+                'class_index':category_id,
+                'class_name': MYCLASSES[category_id],
+                'bbox': bbox_coords,
+                'score': score
+            })
+        mmcv.dump(output, out_file)
+
 
 def analyse_result(result,score_thr=0.5):
     """
@@ -301,6 +364,16 @@ def analyse_result(result,score_thr=0.5):
 
     return bboxes,labels,scores
 
+def paint_chinese_opencv(im,chinese,position,fontsize,color):#opencv输出中文
+    img_PIL = Image.fromarray(cv.cvtColor(im,cv.COLOR_BGR2RGB))# 图像从OpenCV格式转换成PIL格式
+    font = ImageFont.truetype('simhei.ttf',fontsize,encoding="utf-8")
+    #color = (255,0,0) # 字体颜色
+    #position = (100,100)# 文字输出位置
+    draw = ImageDraw.Draw(img_PIL)
+    draw.text(position,chinese,font=font,fill=color)# PIL图片上打印汉字 # 参数1：打印坐标，参数2：文本，参数3：字体颜色，参数4：字体
+    img = cv.cvtColor(np.asarray(img_PIL),cv.COLOR_RGB2BGR)# PIL图片转cv2 图片
+    return img
+
 def label_vis(img,id_list,dict_box):
     bbox_color = (0,0,255)
     text_color = (255,0,0)
@@ -313,14 +386,15 @@ def label_vis(img,id_list,dict_box):
         if id==0:
             continue
         x1,y1,x2,y2,label,score=dict_box[id]
-        print("({},{})   |   ({},{})  |  {}".format(x1,y1,x2,y2,MYCLASSES[label]))
+        # print("({},{})   |   ({},{})  |  {}  |  id : {}".format(x1,y1,x2,y2,MYCLASSES[label],id))
         if x2-x1<=10 or y2-y1<=10:  # 过于细长的box跳过
             continue
         cv.rectangle(img, (x1,y1), (x2,y2), bbox_color, thickness=2)
-        box_list.append([x1,y1,x2-x1,y2-y1,label,score])
+        box_list.append([x1,y1,x2-x1,y2-y1,label,score,id])
         # cv.putText(img, MYCLASSES[label] + ': ' + str(score), (x1,y1), font, 0.6,text_color, 1)
-        
-    return box_list
+        img = paint_chinese_opencv(img,MYCLASSES[label]+":{}".format(score),(x1,y1),12,bbox_color)
+
+    return img,box_list
         
 
 if __name__ == "__main__":
@@ -334,12 +408,42 @@ if __name__ == "__main__":
     model = init_detector(config_file, checkpoint_file, device='cuda:0')
     window_size=400
     center_size=300
-    image_path="data/109.jpg"
+    test_img_list = glob.glob('d:\\img_data\\test\\*.jpg')
+    item="d:\\img_data\\test\\1.jpg"
+    root_dir,filename = os.path.split(item)
+    basename,filetype = os.path.splitext(filename)
+    image_path=item
     image = Image.open(image_path)
+        # image=image.resize((6000,4500),Image.ANTIALIAS)
     image = np.asarray(image)
     img_size=(image.shape[0],image.shape[1])
+
     clip_list=get_clips(image,window_size,center_size)
     print("get clips done-----")
-    clip_for_inference(model,clip_list,img_size,window_size,center_size)
+    box_data=clip_for_inference(model,clip_list,img_size,window_size,center_size,basename)
+    print("inference done")
+    postprocess(box_data,basename)
+    # for item in tqdm(test_img_list):
+    #     root_dir,filename = os.path.split(item)
+    #     basename,filetype = os.path.splitext(filename)
+    #     image_path=item
+    #     image = Image.open(image_path)
+    #     # image=image.resize((6000,4500),Image.ANTIALIAS)
+    #     image = np.asarray(image)
+    #     img_size=(image.shape[0],image.shape[1])
+    #     if(image.shape[0]>7000):
+    #         continue
+    #     clip_list=get_clips(image,window_size,center_size)
+    #     print("get clips done-----")
+    #     box_data=clip_for_inference(model,clip_list,img_size,window_size,center_size,basename)
+    #     print("inference done")
+    #     postprocess(box_data,basename)
+    #     break
+        
     time_end=time.time()
     print('totally cost: {}'.format(time_end-time_start))
+    # TODO:评估标准
+    # FIXME:最佳window_size,center_size(400,300)
+    # python dilatedInference.py
+    # TODO:是否需要merge | 是否需要膨胀 | 
+    # FIXME:是否需要减去width<10的box
